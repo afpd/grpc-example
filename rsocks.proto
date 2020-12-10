@@ -1,0 +1,10 @@
+syntax = "proto3";
+package rsocks;
+
+message Message {
+  bytes body = 1;
+}
+
+service TeleConn {
+  rpc TeleConn(stream Message) returns (stream Message) {}
+}
