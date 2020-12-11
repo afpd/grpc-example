@@ -7,31 +7,69 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"log"
+	"net"
 )
+
+func HandleIcomingConnection(incomingConn net.Conn, grpcConn *grpc.ClientConn) error {
+	log.Printf("Serving %s", incomingConn.RemoteAddr().String())
+	c := rsocks.NewTeleConnClient(grpcConn)
+	stream, err := c.TeleConn(context.Background())
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	go func(stream rsocks.TeleConn_TeleConnClient, incomingConn net.Conn) {
+		for {
+
+			br, err := stream.Recv()
+			if err != nil {
+				log.Panicln(err)
+			}
+			log.Printf("Received: %v", string(br.Body))
+			incomingConn.Write(br.Body)
+		}
+	}(stream, incomingConn)
+	go func(t rsocks.TeleConn_TeleConnClient, c net.Conn) {
+		buff := make([]byte, 2048)
+		for {
+			n, err := c.Read(buff)
+			if err != nil {
+				return
+			}
+			if n > 0 {
+				t.Send(&rsocks.Message{Body: buff[0 : n-1]})
+			}
+		}
+
+	}(stream, incomingConn)
+	return err
+}
 
 func main() {
 	fmt.Println("Starting the client")
-	var conn *grpc.ClientConn
-	conn, err := grpc.Dial(":9000", grpc.WithInsecure())
+	var grpcConn *grpc.ClientConn
+	grpcConn, err := grpc.Dial(":9000", grpc.WithInsecure())
+	if err != nil {
+		log.Println(err)
+	}
+	defer grpcConn.Close()
 	if err != nil {
 		log.Fatalf("did not connect: %s", err)
 	}
-	defer conn.Close()
-	c := rsocks.NewTeleConnClient(conn)
-	stream, err := c.TeleConn(context.Background())
 
-	go func() {
-		for {
-			br, _ := stream.Recv()
-			log.Printf("Received: %v", string(br.Body))
+	l, err := net.Listen("tcp", ":8083")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer l.Close()
+	for {
+		c, err := l.Accept()
+		if err != nil {
+			fmt.Println(err)
+			return
 		}
-	}()
-	go func() {
-		for {
-			stream.Send(&rsocks.Message{Body: []byte("xlam")})
-		}
-	}()
-	done := make(chan bool)
-	<-done
+		go HandleIcomingConnection(c, grpcConn)
+	}
 
 }

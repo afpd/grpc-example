@@ -3,6 +3,7 @@ package rsocks
 import (
 	"io"
 	"log"
+	"time"
 )
 
 type Server struct {
@@ -11,36 +12,32 @@ type Server struct {
 func (s *Server) TeleConn(srv TeleConn_TeleConnServer) error {
 	log.Println("start new server")
 	ctx := srv.Context()
-	for {
+	go func(lsrv TeleConn_TeleConnServer) {
+		for {
+			req, err := lsrv.Recv()
+			if err == io.EOF {
+				log.Println("EOF, exiting the connection...")
+				return
+			}
+			if err != nil {
+				log.Printf("receive error %v", err)
+				return
+			}
+			log.Printf("%s", string(req.Body))
+		}
+	}(srv)
 
-		// exit if context is done
-		// or continue
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+	go func(lsrv TeleConn_TeleConnServer) {
+		for {
+			s := time.Now().String()
+			resp := Message{Body: []byte(s)}
+			if err := lsrv.Send(&resp); err != nil {
+				log.Printf("send error %v", err)
+			}
+			time.Sleep(3 * time.Second)
 		}
 
-		// receive data from stream
-		req, err := srv.Recv()
-		if err == io.EOF {
-			// return will close stream from server side
-			log.Println("exit")
-			return nil
-		}
-		if err != nil {
-			log.Printf("receive error %v", err)
-			continue
-		}
-
-		log.Printf("%s", string(req.Body))
-
-		//  send  to stream
-		resp := Message{Body: []byte("Something")}
-		if err := srv.Send(&resp); err != nil {
-			log.Printf("send error %v", err)
-		}
-		log.Printf("sent %s", string(resp.Body))
-	}
-
+	}(srv)
+	<-ctx.Done()
+	return ctx.Err()
 }
