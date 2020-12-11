@@ -18,7 +18,7 @@ func HandleIcomingConnection(incomingConn net.Conn, grpcConn *grpc.ClientConn) e
 		log.Println(err)
 		return err
 	}
-	go func(stream rsocks.TeleConn_TeleConnClient, incomingConn net.Conn) {
+	go func() {
 		for {
 
 			br, err := stream.Recv()
@@ -28,20 +28,20 @@ func HandleIcomingConnection(incomingConn net.Conn, grpcConn *grpc.ClientConn) e
 			log.Printf("Received: %v", string(br.Body))
 			incomingConn.Write(br.Body)
 		}
-	}(stream, incomingConn)
-	go func(t rsocks.TeleConn_TeleConnClient, c net.Conn) {
+	}()
+	go func() {
 		buff := make([]byte, 2048)
 		for {
-			n, err := c.Read(buff)
+			n, err := incomingConn.Read(buff)
 			if err != nil {
 				return
 			}
 			if n > 0 {
-				t.Send(&rsocks.Message{Body: buff[0 : n-1]})
+				stream.Send(&rsocks.Message{Body: buff[0 : n-1]})
 			}
 		}
 
-	}(stream, incomingConn)
+	}()
 	return err
 }
 
